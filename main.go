@@ -1,0 +1,7 @@
+package main
+
+import "fmt"
+
+func main() {
+	fmt.Println("Hello Artifact Lab, This is Sumanth M")
+}
