@@ -103,11 +103,12 @@ type TrivyReport struct {
 		Target string `json:"Target"`
 
 		Packages []struct {
-			ID           string `json:"ID"`
-			Name         string `json:"Name"`
-			Version      string `json:"Version"`
-			Indirect     bool   `json:"Indirect"`
-			Relationship string `json:"Relationship"`
+			ID           string   `json:"ID"`
+			Name         string   `json:"Name"`
+			Version      string   `json:"Version"`
+			Indirect     bool     `json:"Indirect"`
+			Relationship string   `json:"Relationship"`
+			Licenses     []string `json:"Licenses"`
 		} `json:"Packages"`
 
 		Vulnerabilities []struct {
@@ -367,6 +368,12 @@ func main() {
 				dependencyType = "indirect"
 			}
 
+			// Get license
+			license := ""
+
+			if len(pkg.Licenses) > 0 {
+				license = pkg.Licenses[0]
+			}
 			_, err = conn.Exec(
 				ctx,
 				`
@@ -375,14 +382,16 @@ func main() {
                 artifact_id,
                 name,
                 version,
-                dependency_type
+                dependency_type,
+				license
             )
-            VALUES ($1, $2, $3, $4)
+            VALUES ($1, $2, $3, $4, $5)
             `,
 				artifactID,
 				pkg.Name,
 				pkg.Version,
 				dependencyType,
+				license,
 			)
 
 			if err != nil {
