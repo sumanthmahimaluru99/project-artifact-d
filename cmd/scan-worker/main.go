@@ -290,6 +290,31 @@ func main() {
 		fmt.Println("ClamAV detected malware or scan failed:")
 		fmt.Println(string(clamOutput))
 
+		// Store ClamAV failure result
+		_, err = conn.Exec(
+			ctx,
+			`
+        INSERT INTO scan_results
+        (
+            artifact_id,
+            scanner,
+            scan_status,
+            findings_count
+        )
+        VALUES ($1, $2, $3, $4)
+        `,
+			artifactID,
+			"clamav",
+			"MALWARE_FOUND",
+			1,
+		)
+
+		if err != nil {
+			fmt.Println("Failed to store ClamAV failure result:", err)
+			return
+		}
+
+		// Update artifact status
 		_, err = conn.Exec(
 			ctx,
 			`
@@ -309,6 +334,32 @@ func main() {
 
 	fmt.Println("ClamAV scan passed")
 	fmt.Println(string(clamOutput))
+
+	// Store ClamAV scan result
+	_, err = conn.Exec(
+		ctx,
+		`
+    INSERT INTO scan_results
+    (
+        artifact_id,
+        scanner,
+        scan_status,
+        findings_count
+    )
+    VALUES ($1, $2, $3, $4)
+    `,
+		artifactID,
+		"clamav",
+		"CLEAN",
+		0,
+	)
+
+	if err != nil {
+		fmt.Println("Failed to store ClamAV scan result:", err)
+		return
+	}
+
+	fmt.Println("ClamAV scan result stored in PostgreSQL")
 
 	scanDir := "/tmp/scan-" + artifactID
 
@@ -404,6 +455,7 @@ func main() {
 				pkg.Name,
 				pkg.Version,
 				dependencyType,
+				license,
 			)
 		}
 	}
@@ -411,6 +463,59 @@ func main() {
 		fmt.Println("Failed to parse Trivy JSON:", err)
 		return
 	}
+
+	licenseStatus := "CLEAN"
+
+	var missingLicenseCount int
+
+	err = conn.QueryRow(
+		ctx,
+		`
+    SELECT COUNT(*)
+    FROM dependencies
+    WHERE artifact_id = $1
+      AND (license IS NULL OR license = '')
+    `,
+		artifactID,
+	).Scan(&missingLicenseCount)
+
+	if err != nil {
+		fmt.Println("Failed to check licenses:", err)
+		return
+	}
+
+	if missingLicenseCount > 0 {
+		licenseStatus = "REVIEW"
+	}
+
+	fmt.Println("License status:", licenseStatus)
+	fmt.Println("Missing licenses:", missingLicenseCount)
+
+	// Store License scan result
+	_, err = conn.Exec(
+		ctx,
+		`
+    INSERT INTO scan_results
+    (
+        artifact_id,
+        scanner,
+        scan_status,
+        findings_count
+    )
+    VALUES ($1, $2, $3, $4)
+    `,
+		artifactID,
+		"license",
+		licenseStatus,
+		missingLicenseCount,
+	)
+
+	if err != nil {
+		fmt.Println("Failed to store License scan result:", err)
+		return
+	}
+
+	fmt.Println("License scan result stored in PostgreSQL")
 
 	vulnerabilityCount := 0
 
@@ -499,15 +604,26 @@ func main() {
 		}
 	}
 
+	// Final security decision
+	finalStatus := "APPROVED"
+
+	if vulnerabilityCount > 0 {
+		finalStatus = "REJECTED"
+	} else if licenseStatus == "REVIEW" {
+		finalStatus = "REVIEW"
+	}
+
+	fmt.Println("Final security decision:", finalStatus)
+
 	// Update artifact status
 	_, err = conn.Exec(
 		ctx,
 		`
-        UPDATE artifacts
-        SET status = $1
-        WHERE artifact_id = $2
-        `,
-		scanStatus,
+    UPDATE artifacts
+    SET status = $1
+    WHERE artifact_id = $2
+    `,
+		finalStatus,
 		artifactID,
 	)
 
@@ -516,5 +632,6 @@ func main() {
 		return
 	}
 
-	fmt.Println("Artifact status updated to:", scanStatus)
+	fmt.Println("Artifact status updated to:", finalStatus)
+
 }
