@@ -1,0 +1,13 @@
+.env
+.env.*
+!.env.example
+
+.DS_Store
+
+*.tar.gz
+*.zip
+*.bin
+
+/tmp/
+coverage.out
+coverage.html
